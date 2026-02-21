@@ -55,8 +55,54 @@ curl -X POST "http://localhost:8000/api/upload" \
   -F "file=@your_image.jpg"
 ```
 
-### `GET /health`
-Basic health check.
 ```bash
 curl http://localhost:8000/health
+```
+
+## How the Pipeline Works
+
+To prevent unnecessary API calls and save costs, MouldLensAI uses **OpenCV** to evaluate an image *before* sending it to the Groq LLM.
+
+### Scenario 1: Valid Mould Image
+- **Input:** Clear, well-lit picture of the mould digits.
+- **Process:** OpenCV detects small digit-like shapes. Image is passed to Groq LLaMA 4 Scout vision model. Results matched to Pydantic schema and saved to `mould_readings` MongoDB collection.
+- **Output (HTTP 200 OK):**
+```json
+{
+  "cope": "81373",
+  "drag": {
+    "main": "88234",
+    "sub": "644"
+  },
+  "scan_time_ms": 1145.2,
+  "timestamp": "2024-03-24T18:23:43Z"
+}
+```
+
+### Scenario 2: Blank or Empty Image
+- **Input:** A highly blurred, pure-white, or empty surface with no text.
+- **Process:** OpenCV adaptive thresholding detects zero valid shapes. The system aborts the LLM call early. Error is logged natively to the `mould_readings` MongoDB collection.
+- **Output (HTTP 200 OK):**
+```json
+{
+  "cope": null,
+  "drag": null,
+  "mould_detected": false,
+  "scan_time_ms": 11.2,
+  "timestamp": "2024-03-24T18:24:10Z"
+}
+```
+
+### Scenario 3: Photo of a Dog (Non-mould Image)
+- **Input:** Photo of an object without digits (like a dog, a car, or an empty room).
+- **Process:** OpenCV detects large, irregular contours that do not match the size/aspect ratio of digits. System aborts LLM call to save tokens. Error is logged natively to the `mould_readings` MongoDB collection.
+- **Output (HTTP 200 OK):**
+```json
+{
+  "cope": null,
+  "drag": null,
+  "mould_detected": false,
+  "scan_time_ms": 14.5,
+  "timestamp": "2024-03-24T18:25:12Z"
+}
 ```

@@ -5,7 +5,7 @@ import time
 from datetime import datetime
 from schema import MouldReading, MouldReadingResponse
 from services import extract_mould_values
-from utils import db, save_mould_reading
+from utils import db, save_mould_reading, contains_potential_digits
 
 # Setup FastAPI application
 app = FastAPI(
@@ -35,8 +35,29 @@ async def upload_image(file: UploadFile = File(...)):
     
     try:
         contents = await file.read()
-        
         start_time = time.time()
+        
+        # 1. Pre-process Image (Check if empty/dog/not-mould)
+        if not contains_potential_digits(contents):
+            end_time = time.time()
+            scan_time_ms = round((end_time - start_time) * 1000, 2)
+            
+            # Create a blank reading response with the flag flipped
+            response_data = MouldReadingResponse(
+                cope=None,
+                drag=None,
+                mould_detected=False,
+                scan_time_ms=scan_time_ms,
+                timestamp=datetime.utcnow()
+            )
+            
+            # Save error log properly to the main collection
+            if db.db is not None:
+                await save_mould_reading(response_data.model_dump())
+                
+            return response_data
+
+        # 2. Extract values via LLM
         result = extract_mould_values(contents, file.content_type)
         end_time = time.time()
         
@@ -46,12 +67,14 @@ async def upload_image(file: UploadFile = File(...)):
         response_data = MouldReadingResponse(
             cope=result.cope,
             drag=result.drag,
+            mould_detected=True,
             scan_time_ms=scan_time_ms,
             timestamp=current_time
         )
         
-        # Save to MongoDB
-        await save_mould_reading(response_data.model_dump())
+        # Save valid reading to MongoDB
+        if db.db is not None:
+            await save_mould_reading(response_data.model_dump())
         
         return response_data
     except ValueError as ve:
