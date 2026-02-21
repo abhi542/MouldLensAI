@@ -1,8 +1,8 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 import uvicorn
-import logging
 import time
 from datetime import datetime
+from logger import logger
 from schema import MouldReading, MouldReadingResponse
 from services import extract_mould_values
 from utils import db, save_mould_reading, contains_potential_digits
@@ -14,8 +14,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+
 
 @app.on_event("startup")
 async def startup_db_client():
@@ -26,9 +25,13 @@ async def shutdown_db_client():
     db.disconnect()
 
 @app.post("/api/upload", response_model=MouldReadingResponse)
-async def upload_image(file: UploadFile = File(...)):
+async def upload_image(
+    file: UploadFile = File(...),
+    camera_id: str = Form("CAM_01")
+):
     """
-    Accepts an image upload of an industrial mould and extracts Cope and Drag values.
+    Accepts an image upload of an industrial mould, extracts Cope/Drag values,
+    and logs the specific camera hardware id.
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload an image.")
@@ -40,49 +43,116 @@ async def upload_image(file: UploadFile = File(...)):
         # 1. Pre-process Image (Check if empty/dog/not-mould)
         if not contains_potential_digits(contents):
             end_time = time.time()
-            scan_time_ms = round((end_time - start_time) * 1000, 2)
+            processing_time_ms = round((end_time - start_time) * 1000, 2)
             
-            # Create a blank reading response with the flag flipped
+            # Create an empty state response
             response_data = MouldReadingResponse(
+                status="empty",
+                message="Nothing detected, mould missing",
                 cope=None,
                 drag=None,
-                mould_detected=False,
-                scan_time_ms=scan_time_ms,
-                timestamp=datetime.utcnow()
+                timestamp=datetime.utcnow(),
+                processing_time_ms=processing_time_ms,
+                camera_id=camera_id
             )
             
-            # Save error log properly to the main collection
+            # Save empty log to the main collection
             if db.db is not None:
                 await save_mould_reading(response_data.model_dump())
                 
+            # Emit structured JSON log
+            logger.info("Mould check failed", extra={
+                "camera_id": camera_id,
+                "status": "empty",
+                "mould_message": "Nothing detected, mould missing",
+                "processing_time_ms": processing_time_ms
+            })
+            
             return response_data
 
         # 2. Extract values via LLM
         result = extract_mould_values(contents, file.content_type)
         end_time = time.time()
         
-        scan_time_ms = round((end_time - start_time) * 1000, 2)
+        processing_time_ms = round((end_time - start_time) * 1000, 2)
         current_time = datetime.utcnow()
         
+        # 3. Post-Process LLM Results (if LLM returned empty/null because it couldn't find digits)
+        if result.cope is None and result.drag is None:
+            response_data = MouldReadingResponse(
+                status="empty",
+                message="Nothing detected, mould missing",
+                cope=None,
+                drag=None,
+                timestamp=current_time,
+                processing_time_ms=processing_time_ms,
+                camera_id=camera_id
+            )
+            
+            if db.db is not None:
+                await save_mould_reading(response_data.model_dump())
+                
+            logger.info("Mould check failed via LLM", extra={
+                "camera_id": camera_id,
+                "status": "empty",
+                "mould_message": "LLM returned null, no digits found",
+                "processing_time_ms": processing_time_ms
+            })
+            return response_data
+            
+        # 4. Success State
         response_data = MouldReadingResponse(
+            status="success",
+            message="Mould detected successfully",
             cope=result.cope,
             drag=result.drag,
-            mould_detected=True,
-            scan_time_ms=scan_time_ms,
-            timestamp=current_time
+            timestamp=current_time,
+            processing_time_ms=processing_time_ms,
+            camera_id=camera_id
         )
         
         # Save valid reading to MongoDB
         if db.db is not None:
             await save_mould_reading(response_data.model_dump())
+            
+        # Emit structured JSON log
+        logger.info("Extraction successful", extra={
+            "camera_id": camera_id,
+            "status": "success",
+            "cope": result.cope,
+            "drag_main": result.drag.main if result.drag else None,
+            "drag_sub": result.drag.sub if result.drag else None,
+            "processing_time_ms": processing_time_ms
+        })
         
         return response_data
-    except ValueError as ve:
-        logger.error(f"Configuration error: {str(ve)}")
-        raise HTTPException(status_code=500, detail=str(ve))
     except Exception as e:
-        logger.error(f"Error processing image: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error during LLM processing.")
+        end_time = time.time()
+        processing_time_ms = round((end_time - start_time) * 1000, 2)
+        
+        # Craft an error state
+        error_response = MouldReadingResponse(
+            status="error",
+            message=f"Extraction failed: {str(e)}",
+            cope=None,
+            drag=None,
+            timestamp=datetime.utcnow(),
+            processing_time_ms=processing_time_ms,
+            camera_id=camera_id
+        )
+        # Log the error state normally
+        if db.db is not None:
+            await save_mould_reading(error_response.model_dump())
+            
+        # Emit structured JSON log
+        logger.error("Extraction failed", extra={
+            "camera_id": camera_id,
+            "status": "error",
+            "mould_message": f"Extraction failed: {str(e)}",
+            "processing_time_ms": processing_time_ms
+        })
+            
+        return error_response
     finally:
         await file.close()
 
