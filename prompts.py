@@ -17,4 +17,12 @@ Strict rules:
     drag_main = 88234
     drag_sub = 644
 - Never fabricate values.
+
+OUTPUT FORMAT:
+You MUST return ONLY a valid JSON object. No explanation, no markdown. Use this structure:
+{
+  "cope": "value or null",
+  "drag_main": "value or null",
+  "drag_sub": "value or null"
+}
 """

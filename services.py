@@ -24,14 +24,15 @@ def extract_mould_values(image_bytes: bytes, mime_type: str) -> MouldReading:
         max_retries=2
     )
     
-    structured_llm = llm.with_structured_output(LLMExtraction)
-    
     base64_image = encode_image(image_bytes)
     
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
         HumanMessage(content=[
-            {"type": "text", "text": "Extract the COPE and DRAG values from this mould image."},
+            {
+                "type": "text", 
+                "text": "Analyze the mould image and extract the numerical values for cope and drag according to the system rules. Output your final answer STRICTLY as a single JSON object. Do NOT wrap it in markdown block quotes (```json). Your response must start with { and end with }."
+            },
             {
                 "type": "image_url",
                 "image_url": {"url": f"data:{mime_type};base64,{base64_image}"}  
@@ -40,8 +41,25 @@ def extract_mould_values(image_bytes: bytes, mime_type: str) -> MouldReading:
     ]
     
     try:
-        raw_result = structured_llm.invoke(messages)
+        import json
+        raw_response = llm.invoke(messages)
         
+        # Parse text output natively
+        try:
+            content = raw_response.content.strip()
+            # Failsafe: if the LLM outputted markdown gates like ```json { ... } ```
+            if "```json" in content:
+                content = content.replace("```json", "").replace("```", "").strip()
+            elif "```" in content:
+                content = content.replace("```", "").strip()
+            
+            parsed_json = json.loads(content)
+            
+            raw_result = LLMExtraction(**parsed_json)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to decode LLM JSON: {content}")
+            raise ValueError(f"LLM returned invalid JSON: {str(e)}")
+            
         drag = None
         if raw_result.drag_main:
             drag = DragValue(main=raw_result.drag_main, sub=raw_result.drag_sub)

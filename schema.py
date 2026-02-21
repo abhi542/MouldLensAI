@@ -15,5 +15,6 @@ class MouldReading(BaseModel):
     drag: DragValue | None = Field(default=None, description="The drag value from the lower mould section")
 
 class MouldReadingResponse(MouldReading):
+    mould_detected: bool = Field(default=True, description="Flag indicating if text/digits were visually detected in the image")
     scan_time_ms: float = Field(..., description="Time taken to process the image in milliseconds")
     timestamp: datetime = Field(..., description="Timestamp of the extraction")
