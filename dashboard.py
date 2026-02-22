@@ -80,7 +80,8 @@ avg_processing_time = df['processing_time_ms'].mean()
 
 # Safely get last valid mould IF one exists
 last_valid = df[df['status'] == 'success'].head(1)
-last_mould_id = "N/A"
+cope_val = "N/A"
+drag_val = "N/A"
 if not last_valid.empty:
     mould = last_valid.iloc[0]
     cope = mould.get('cope', 'Unknown')
@@ -88,10 +89,11 @@ if not last_valid.empty:
     drag_main = drag.get('main', 'Unknown') if isinstance(drag, dict) else 'Unknown'
     drag_sub = drag.get('sub', '') if isinstance(drag, dict) else ''
     
+    cope_val = str(cope)
     if pd.isna(drag_sub) or not drag_sub:
-        last_mould_id = f"C:{cope} | D:{drag_main}"
+        drag_val = str(drag_main)
     else:
-        last_mould_id = f"C:{cope} | D:{drag_main} ({drag_sub})"
+        drag_val = f"{drag_main} ({drag_sub})"
 
 with col1:
     st.metric("Total Captures (24h)", f"{total_captures:,}")
@@ -102,7 +104,11 @@ with col3:
 with col4:
     st.metric("Avg Processing Time", f"{avg_processing_time:.0f} ms")
 with col5:
-    st.metric("Last Valid Detection", last_mould_id)
+    if cope_val == "N/A":
+        st.metric("Last Valid Detection", "N/A")
+    else:
+        st.caption("Last Valid Detection")
+        st.markdown(f"**C:** {cope_val}<br>**D:** {drag_val}", unsafe_allow_html=True)
 
 
 # 3. Charts

@@ -61,48 +61,51 @@ curl http://localhost:8000/health
 
 ## How the Pipeline Works
 
-To prevent unnecessary API calls and save costs, MouldLensAI uses **OpenCV** to evaluate an image *before* sending it to the Groq LLM.
+To prevent unnecessary API calls and save costs, MouldLensAI uses **OpenCV** to evaluate an image *before* sending it to the Groq LLM. It routes the extracted values into a strict State Machine (`success`, `empty`, `error`) with a unique `camera_id` for tracking.
 
 ### Scenario 1: Valid Mould Image
 - **Input:** Clear, well-lit picture of the mould digits.
-- **Process:** OpenCV detects small digit-like shapes. Image is passed to Groq LLaMA 4 Scout vision model. Results matched to Pydantic schema and saved to `mould_readings` MongoDB collection.
+- **Process:** OpenCV detects small digit-like shapes. Image is passed to Groq LLaMA 4 Scout vision model. Results matched to schema and seamlessly logged sequentially exactly as `status="success"`.
 - **Output (HTTP 200 OK):**
 ```json
 {
+  "status": "success",
+  "message": "Mould detected successfully",
   "cope": "81373",
   "drag": {
     "main": "88234",
     "sub": "644"
   },
-  "scan_time_ms": 1145.2,
-  "timestamp": "2024-03-24T18:23:43Z"
+  "timestamp": "2024-03-24T18:23:43Z",
+  "processing_time_ms": 504.6,
+  "camera_id": "CAM_01"
 }
 ```
 
-### Scenario 2: Blank or Empty Image
-- **Input:** A highly blurred, pure-white, or empty surface with no text.
-- **Process:** OpenCV adaptive thresholding detects zero valid shapes. The system aborts the LLM call early. Error is logged natively to the `mould_readings` MongoDB collection.
+### Scenario 2: Blank or Empty Image (Or Non-Mould/Dog)
+- **Input:** A highly blurred surface, empty wall, or an object completely lacking digits (e.g. dog).
+- **Process:** OpenCV adaptive thresholding detects zero valid mathematical shapes, or the LLM actively parses and returns an empty read. The system saves API tokens and jumps straight to the `empty` error block without hallucinating.
 - **Output (HTTP 200 OK):**
 ```json
 {
+  "status": "empty",
+  "message": "Nothing detected, mould missing",
   "cope": null,
   "drag": null,
-  "mould_detected": false,
-  "scan_time_ms": 11.2,
-  "timestamp": "2024-03-24T18:24:10Z"
+  "timestamp": "2024-03-24T18:24:10Z",
+  "processing_time_ms": 5.2,
+  "camera_id": "CAM_01"
 }
 ```
 
-### Scenario 3: Photo of a Dog (Non-mould Image)
-- **Input:** Photo of an object without digits (like a dog, a car, or an empty room).
-- **Process:** OpenCV detects large, irregular contours that do not match the size/aspect ratio of digits. System aborts LLM call to save tokens. Error is logged natively to the `mould_readings` MongoDB collection.
-- **Output (HTTP 200 OK):**
-```json
-{
-  "cope": null,
-  "drag": null,
-  "mould_detected": false,
-  "scan_time_ms": 14.5,
-  "timestamp": "2024-03-24T18:25:12Z"
-}
+## Running the Telemetry Dashboard
+
+Included in the project is a local Streamlit Analytics Dashboard that acts as a real-time monitor reading directly from the `mould_readings` MongoDB collection.
+
+```bash
+streamlit run dashboard.py
 ```
+This local server tracks:
+- **Red/Green System Alarms:** Flashes a red warning if 3 consecutive cameras send an `empty` signal (detecting a potential blockage or camera fault).
+- **Throughput Latency:** Charts milliseconds taken to parse the OCR models.
+- **Detection Ratios:** A real-time success vs failure breakdown.
