@@ -14,7 +14,11 @@ class MouldReading(BaseModel):
     cope: str | None = Field(default=None, description="The cope number from the upper mould section")
     drag: DragValue | None = Field(default=None, description="The drag value from the lower mould section")
 
-class MouldReadingResponse(MouldReading):
-    mould_detected: bool = Field(default=True, description="Flag indicating if text/digits were visually detected in the image")
-    scan_time_ms: float = Field(..., description="Time taken to process the image in milliseconds")
+class MouldReadingResponse(BaseModel):
+    status: str = Field(..., description="'success', 'empty', or 'error'")
+    message: str = Field(..., description="Explanation of the status")
+    cope: str | None = Field(default=None, description="The cope number from the upper mould section")
+    drag: DragValue | None = Field(default=None, description="The drag value from the lower mould section")
     timestamp: datetime = Field(..., description="Timestamp of the extraction")
+    processing_time_ms: float = Field(..., description="Time taken to process the image in milliseconds")
+    camera_id: str = Field(..., description="Identifier for the camera hardware")
