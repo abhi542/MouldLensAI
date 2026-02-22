@@ -109,3 +109,9 @@ This local server tracks:
 - **Red/Green System Alarms:** Flashes a red warning if 3 consecutive cameras send an `empty` signal (detecting a potential blockage or camera fault).
 - **Throughput Latency:** Charts milliseconds taken to parse the OCR models.
 - **Detection Ratios:** A real-time success vs failure breakdown.
+
+## Logging Architecture
+
+MouldLensAI uses a dual-stream architecture to ensure zero data loss while remaining easily querable:
+1. **Primary Stream (MongoDB):** The moment an image is processed (or rejected), the exact state (`status`, `cope`, `drag`, `processing_time_ms`) is injected securely into the remote `mould_readings` MongoDB collection. The Streamlit dashboard reads exclusively from this live remote feed.
+2. **Secondary Stream (Flat JSON):** For redundant backup and strict auditing, the `logger.py` module creates a `python-json-logger` flat file at `logs/mouldlens.log`. This file uses a strict `RotatingFileHandler` customized to roll over precisely at 5MB, meaning the host server will never run out of disk space. This file feed is optimized for Datadog, Splunk, or AWS CloudWatch ingestors.
