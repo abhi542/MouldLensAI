@@ -10,9 +10,11 @@ from config import settings
 
 st.set_page_config(page_title="MouldLensAI Monitor", page_icon="⚙️", layout="wide")
 
+API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
+
 def fetch_recent_logs(hours=24, start_date=None, end_date=None):
     try:
-        url = f"http://127.0.0.1:8000/api/metrics/recent?hours={hours}"
+        url = f"{API_URL}/api/metrics/recent?hours={hours}"
         if start_date and end_date:
             url += f"&start_date={start_date}&end_date={end_date}"
             
@@ -251,7 +253,7 @@ with tab2:
                         data = {"camera_id": "factory_cam_01"}
                         
                         start_time = time.time()
-                        response = requests.post("http://127.0.0.1:8000/api/upload", files=files, data=data)
+                        response = requests.post(f"{API_URL}/api/upload", files=files, data=data)
                         st.session_state.last_upload_duration = round((time.time() - start_time) * 1000, 2)
                         
                         if response.status_code == 200:
@@ -305,7 +307,7 @@ with tab2:
                                     }
                                 }
                                 try:
-                                    put_res = requests.put(f"http://127.0.0.1:8000/api/metrics/update/{reading_id}", json=put_payload)
+                                    put_res = requests.put(f"{API_URL}/api/metrics/update/{reading_id}", json=put_payload)
                                     if put_res.status_code == 200:
                                         st.success("Override saved successfully! Changes are live on the Telemetry tab.")
                                         

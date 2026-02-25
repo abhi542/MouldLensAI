@@ -1,0 +1,29 @@
+services:
+  # The FastAPI Backend Service
+  - type: web
+    name: mouldlens-api
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.12 # Match standard execution environment
+      - key: GROQ_API_KEY
+        sync: false # User must provide this securely in the Render dashboard
+      - key: MONGODB_URI
+        sync: false # User must provide this securely in the Render dashboard
+
+  # The Streamlit Frontend Service
+  - type: web
+    name: mouldlens-dashboard
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "streamlit run dashboard.py --server.port $PORT --server.address 0.0.0.0"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.12
+      - key: API_URL
+        fromService:
+          type: web
+          name: mouldlens-api
+          envVarKey: RENDER_EXTERNAL_URL
